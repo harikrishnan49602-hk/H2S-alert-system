@@ -1,0 +1,966 @@
+#define ENABLE_USER_AUTH
+#define ENABLE_DATABASE
+
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <FirebaseClient.h>
+
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <time.h>
+
+// =====================================================
+// WIFI
+// =====================================================
+
+#define WIFI_SSID       ""
+#define WIFI_PASSWORD   ""
+
+// =====================================================
+// FIREBASE
+// =====================================================
+
+#define API_KEY         ""
+#define USER_EMAIL      ""
+#define USER_PASSWORD   ""
+
+#define DATABASE_URL    ""
+
+// =====================================================
+// PINS
+// =====================================================
+
+#define H2S_PIN         34
+#define PIR_PIN         27
+#define BUZZER_PIN      25
+
+#define OLED_SDA        21
+#define OLED_SCL        22
+
+// =====================================================
+// OLED
+// =====================================================
+
+#define SCREEN_WIDTH    128
+#define SCREEN_HEIGHT   64
+
+Adafruit_SSD1306 display(
+  SCREEN_WIDTH,
+  SCREEN_HEIGHT,
+  &Wire,
+  -1
+);
+
+// =====================================================
+// FIREBASE
+// =====================================================
+
+UserAuth user_auth(
+  API_KEY,
+  USER_EMAIL,
+  USER_PASSWORD
+);
+
+FirebaseApp app;
+
+WiFiClientSecure ssl_client;
+
+using AsyncClient = AsyncClientClass;
+
+AsyncClient aClient(ssl_client);
+
+RealtimeDatabase Database;
+
+// =====================================================
+// SETTINGS
+// =====================================================
+
+const float DANGER_LIMIT = 40.0;
+
+const unsigned long UPLOAD_INTERVAL = 5000;
+
+// -----------------------------------------------------
+// PIR PERSON-PRESENCE TIME
+// -----------------------------------------------------
+// After PIR detects motion, person remains "PRESENT"
+// for this amount of time.
+//
+// Change 30000 to:
+// 60000  = 1 minute
+// 120000 = 2 minutes
+// 300000 = 5 minutes
+// -----------------------------------------------------
+
+const unsigned long PERSON_TIMEOUT = 30000;
+
+// Last time PIR detected motion
+
+unsigned long lastMotionTime = 0;
+
+// Current person status
+
+bool personPresent = false;
+
+// Previous PIR state
+
+bool previousPirState = LOW;
+
+// Firebase upload timer
+
+unsigned long lastUpload = 0;
+
+// Previous PPM
+
+float lastPPM = -1;
+
+// =====================================================
+// FIREBASE CALLBACK
+// =====================================================
+
+void processData(AsyncResult &aResult)
+{
+  if (!aResult.isResult())
+    return;
+
+  if (aResult.isError())
+  {
+    Serial.print("Firebase Error: ");
+    Serial.println(aResult.error().message());
+  }
+  else
+  {
+    Serial.println("Firebase operation successful");
+  }
+}
+
+// =====================================================
+// DATE
+// =====================================================
+
+String getDate()
+{
+  struct tm timeinfo;
+
+  if (!getLocalTime(&timeinfo))
+    return "0000-00-00";
+
+  char buffer[20];
+
+  strftime(
+    buffer,
+    sizeof(buffer),
+    "%Y-%m-%d",
+    &timeinfo
+  );
+
+  return String(buffer);
+}
+
+// =====================================================
+// TIME
+// =====================================================
+
+String getTime()
+{
+  struct tm timeinfo;
+
+  if (!getLocalTime(&timeinfo))
+    return "00:00:00";
+
+  char buffer[20];
+
+  strftime(
+    buffer,
+    sizeof(buffer),
+    "%H:%M:%S",
+    &timeinfo
+  );
+
+  return String(buffer);
+}
+
+// =====================================================
+// DAY
+// =====================================================
+
+String getDay()
+{
+  struct tm timeinfo;
+
+  if (!getLocalTime(&timeinfo))
+    return "Unknown";
+
+  char buffer[20];
+
+  strftime(
+    buffer,
+    sizeof(buffer),
+    "%A",
+    &timeinfo
+  );
+
+  return String(buffer);
+}
+
+// =====================================================
+// H2S SENSOR
+// =====================================================
+
+float readH2S()
+{
+  int rawValue = analogRead(H2S_PIN);
+
+  float voltage =
+    (rawValue / 4095.0) * 3.3;
+
+  // TEMPORARY CONVERSION
+  // NOT CALIBRATED
+
+  float ppm = voltage * 20.0;
+
+  if (ppm < 0)
+    ppm = 0;
+
+  return ppm;
+}
+
+// =====================================================
+// PIR PERSON PRESENCE
+// =====================================================
+
+void updatePersonPresence()
+{
+  bool pirState = digitalRead(PIR_PIN);
+
+  // ---------------------------------------------------
+  // NEW MOTION DETECTED
+  // ---------------------------------------------------
+
+  if (pirState == HIGH)
+  {
+    lastMotionTime = millis();
+
+    if (!personPresent)
+    {
+      Serial.println();
+      Serial.println("==============================");
+      Serial.println("MOTION DETECTED");
+      Serial.println("PERSON PRESENT");
+      Serial.println("==============================");
+    }
+
+    personPresent = true;
+  }
+
+  // ---------------------------------------------------
+  // NO MOTION FOR TIMEOUT PERIOD
+  // ---------------------------------------------------
+
+  if (
+    personPresent &&
+    millis() - lastMotionTime >= PERSON_TIMEOUT
+  )
+  {
+    personPresent = false;
+
+    Serial.println();
+    Serial.println("==============================");
+    Serial.println("NO MOTION");
+    Serial.println("NO PERSON DETECTED");
+    Serial.println("==============================");
+  }
+
+  previousPirState = pirState;
+}
+
+// =====================================================
+// OLED
+// =====================================================
+
+void showOLED(
+  float ppm,
+  bool person,
+  bool danger
+)
+{
+  display.clearDisplay();
+
+  display.setTextColor(
+    SSD1306_WHITE
+  );
+
+  // ---------------------------------------------------
+  // TITLE
+  // ---------------------------------------------------
+
+  display.setTextSize(2);
+
+  display.setCursor(0, 0);
+
+  display.println("TRIZEN");
+
+  // ---------------------------------------------------
+  // H2S
+  // ---------------------------------------------------
+
+  display.setTextSize(1);
+
+  display.setCursor(0, 22);
+
+  display.print("H2S: ");
+
+  display.setTextSize(2);
+
+  display.print(ppm, 1);
+
+  display.setTextSize(1);
+
+  display.println(" ppm");
+
+  // ---------------------------------------------------
+  // PERSON
+  // ---------------------------------------------------
+
+  display.setCursor(0, 42);
+
+  display.print("PERSON: ");
+
+  if (person)
+    display.println("PRESENT");
+  else
+    display.println("NO");
+
+  // ---------------------------------------------------
+  // STATUS
+  // ---------------------------------------------------
+
+  display.setCursor(0, 55);
+
+  if (danger && person)
+  {
+    display.println("EVACUATE!");
+  }
+  else if (danger)
+  {
+    display.println("DANGER!");
+  }
+  else
+  {
+    display.println("SAFE");
+  }
+
+  display.display();
+}
+
+// =====================================================
+// WIFI
+// =====================================================
+
+void connectWiFi()
+{
+  Serial.println();
+
+  Serial.println(
+    "Connecting to WiFi..."
+  );
+
+  WiFi.mode(WIFI_STA);
+
+  WiFi.begin(
+    WIFI_SSID,
+    WIFI_PASSWORD
+  );
+
+  while (
+    WiFi.status() != WL_CONNECTED
+  )
+  {
+    delay(500);
+
+    Serial.print(".");
+  }
+
+  Serial.println();
+
+  Serial.println(
+    "WiFi Connected!"
+  );
+
+  Serial.print(
+    "IP Address: "
+  );
+
+  Serial.println(
+    WiFi.localIP()
+  );
+}
+
+// =====================================================
+// TIME
+// =====================================================
+
+void setupTime()
+{
+  Serial.println(
+    "Synchronizing time..."
+  );
+
+  configTime(
+    19800,
+    0,
+    "pool.ntp.org",
+    "time.nist.gov"
+  );
+
+  struct tm timeinfo;
+
+  int attempts = 0;
+
+  while (
+    !getLocalTime(&timeinfo) &&
+    attempts < 20
+  )
+  {
+    delay(500);
+
+    Serial.print(".");
+
+    attempts++;
+  }
+
+  Serial.println();
+
+  if (attempts < 20)
+  {
+    Serial.println(
+      "Time synchronized!"
+    );
+
+    Serial.print("Date: ");
+    Serial.println(getDate());
+
+    Serial.print("Time: ");
+    Serial.println(getTime());
+  }
+  else
+  {
+    Serial.println(
+      "Time synchronization failed"
+    );
+  }
+}
+
+// =====================================================
+// FIREBASE CURRENT DATA
+// =====================================================
+
+void sendCurrentData(
+  float ppm,
+  bool person
+)
+{
+  if (!app.ready())
+  {
+    Serial.println(
+      "Firebase not ready"
+    );
+
+    return;
+  }
+
+  String date = getDate();
+
+  String time = getTime();
+
+  String day = getDay();
+
+  String status;
+
+  if (ppm > DANGER_LIMIT)
+  {
+    if (person)
+      status = "EVACUATE";
+    else
+      status = "DANGER";
+  }
+  else
+  {
+    status = "SAFE";
+  }
+
+  String basePath =
+    "/trizen/h2s/current";
+
+  Database.set<float>(
+    aClient,
+    basePath + "/ppm",
+    ppm,
+    processData,
+    "currentPPM"
+  );
+
+  Database.set<String>(
+    aClient,
+    basePath + "/time",
+    time,
+    processData,
+    "currentTime"
+  );
+
+  Database.set<String>(
+    aClient,
+    basePath + "/date",
+    date,
+    processData,
+    "currentDate"
+  );
+
+  Database.set<String>(
+    aClient,
+    basePath + "/day",
+    day,
+    processData,
+    "currentDay"
+  );
+
+  // IMPORTANT:
+  // This is now PERSON PRESENCE,
+  // not raw PIR HIGH/LOW.
+
+  Database.set<bool>(
+    aClient,
+    basePath + "/personDetected",
+    person,
+    processData,
+    "currentPerson"
+  );
+
+  Database.set<String>(
+    aClient,
+    basePath + "/status",
+    status,
+    processData,
+    "currentStatus"
+  );
+
+  Serial.println(
+    "Current data sent to Firebase"
+  );
+}
+
+// =====================================================
+// FIREBASE HISTORY
+// =====================================================
+
+void sendHistory(
+  float ppm,
+  bool person
+)
+{
+  if (!app.ready())
+  {
+    Serial.println(
+      "Firebase not ready for history"
+    );
+
+    return;
+  }
+
+  String date = getDate();
+
+  String time = getTime();
+
+  String day = getDay();
+
+  String historyID = getTime();
+
+  historyID.replace(":", "-");
+
+  historyID += "_";
+
+  historyID += String(millis());
+
+  String historyPath =
+    "/trizen/h2s/history/" +
+    date +
+    "/" +
+    historyID;
+
+  Database.set<float>(
+    aClient,
+    historyPath + "/ppm",
+    ppm,
+    processData,
+    "historyPPM"
+  );
+
+  Database.set<String>(
+    aClient,
+    historyPath + "/time",
+    time,
+    processData,
+    "historyTime"
+  );
+
+  Database.set<String>(
+    aClient,
+    historyPath + "/date",
+    date,
+    processData,
+    "historyDate"
+  );
+
+  Database.set<String>(
+    aClient,
+    historyPath + "/day",
+    day,
+    processData,
+    "historyDay"
+  );
+
+  Database.set<bool>(
+    aClient,
+    historyPath + "/personDetected",
+    person,
+    processData,
+    "historyPerson"
+  );
+
+  Serial.println(
+    "History data sent to Firebase"
+  );
+}
+
+// =====================================================
+// SETUP
+// =====================================================
+
+void setup()
+{
+  Serial.begin(115200);
+
+  delay(1000);
+
+  Serial.println();
+
+  Serial.println(
+    "================================"
+  );
+
+  Serial.println(
+    "       TRIZEN H2S SAFETY"
+  );
+
+  Serial.println(
+    "       MONITORING SYSTEM"
+  );
+
+  Serial.println(
+    "================================"
+  );
+
+  // ---------------------------------------------------
+  // PINS
+  // ---------------------------------------------------
+
+  pinMode(
+    H2S_PIN,
+    INPUT
+  );
+
+  pinMode(
+    PIR_PIN,
+    INPUT
+  );
+
+  pinMode(
+    BUZZER_PIN,
+    OUTPUT
+  );
+
+  digitalWrite(
+    BUZZER_PIN,
+    LOW
+  );
+
+  // ---------------------------------------------------
+  // OLED
+  // ---------------------------------------------------
+
+  Wire.begin(
+    OLED_SDA,
+    OLED_SCL
+  );
+
+  if (
+    !display.begin(
+      SSD1306_SWITCHCAPVCC,
+      0x3C
+    )
+  )
+  {
+    Serial.println(
+      "OLED NOT FOUND!"
+    );
+
+    while (true)
+    {
+      delay(1000);
+    }
+  }
+
+  Serial.println(
+    "OLED FOUND!"
+  );
+
+  display.clearDisplay();
+
+  display.setTextColor(
+    SSD1306_WHITE
+  );
+
+  display.setTextSize(2);
+
+  display.setCursor(20, 5);
+
+  display.println("TRIZEN");
+
+  display.setTextSize(1);
+
+  display.setCursor(15, 30);
+
+  display.println(
+    "H2S SAFETY SYSTEM"
+  );
+
+  display.setCursor(25, 50);
+
+  display.println(
+    "STARTING..."
+  );
+
+  display.display();
+
+  delay(2000);
+
+  // ---------------------------------------------------
+  // WIFI
+  // ---------------------------------------------------
+
+  connectWiFi();
+
+  // ---------------------------------------------------
+  // TIME
+  // ---------------------------------------------------
+
+  setupTime();
+
+  // ---------------------------------------------------
+  // FIREBASE
+  // ---------------------------------------------------
+
+  ssl_client.setInsecure();
+
+  Serial.println(
+    "Initializing Firebase..."
+  );
+
+  initializeApp(
+    aClient,
+    app,
+    getAuth(user_auth),
+    processData,
+    "authTask"
+  );
+
+  app.getApp<RealtimeDatabase>(
+    Database
+  );
+
+  Database.url(
+    DATABASE_URL
+  );
+
+  Serial.println(
+    "Firebase configured!"
+  );
+
+  Serial.println(
+    "System starting..."
+  );
+
+  delay(1000);
+}
+
+// =====================================================
+// LOOP
+// =====================================================
+
+void loop()
+{
+  // Firebase
+
+  app.loop();
+
+  // ---------------------------------------------------
+  // UPDATE PERSON PRESENCE
+  // ---------------------------------------------------
+
+  updatePersonPresence();
+
+  // ---------------------------------------------------
+  // READ H2S
+  // ---------------------------------------------------
+
+  float ppm = readH2S();
+
+  // ---------------------------------------------------
+  // SAFETY
+  // ---------------------------------------------------
+
+  bool danger =
+    ppm > DANGER_LIMIT;
+
+  // ---------------------------------------------------
+  // BUZZER
+  // ---------------------------------------------------
+
+  if (danger)
+  {
+    digitalWrite(
+      BUZZER_PIN,
+      HIGH
+    );
+  }
+  else
+  {
+    digitalWrite(
+      BUZZER_PIN,
+      LOW
+    );
+  }
+
+  // ---------------------------------------------------
+  // OLED
+  // ---------------------------------------------------
+
+  showOLED(
+    ppm,
+    personPresent,
+    danger
+  );
+
+  // ---------------------------------------------------
+  // SERIAL MONITOR
+  // ---------------------------------------------------
+
+  Serial.println();
+
+  Serial.println(
+    "--------------------------------"
+  );
+
+  Serial.print(
+    "H2S PPM       : "
+  );
+
+  Serial.println(
+    ppm,
+    2
+  );
+
+  Serial.print(
+    "Person        : "
+  );
+
+  if (personPresent)
+    Serial.println("PRESENT");
+  else
+    Serial.println("NOT PRESENT");
+
+  Serial.print(
+    "Safety Status : "
+  );
+
+  if (
+    danger &&
+    personPresent
+  )
+  {
+    Serial.println(
+      "EVACUATE"
+    );
+  }
+  else if (danger)
+  {
+    Serial.println(
+      "DANGER"
+    );
+  }
+  else
+  {
+    Serial.println(
+      "SAFE"
+    );
+  }
+
+  Serial.print(
+    "Date          : "
+  );
+
+  Serial.println(
+    getDate()
+  );
+
+  Serial.print(
+    "Day           : "
+  );
+
+  Serial.println(
+    getDay()
+  );
+
+  Serial.print(
+    "Time          : "
+  );
+
+  Serial.println(
+    getTime()
+  );
+
+  // ---------------------------------------------------
+  // FIREBASE
+  // ---------------------------------------------------
+
+  if (
+    app.ready() &&
+    millis() - lastUpload >=
+    UPLOAD_INTERVAL
+  )
+  {
+    lastUpload = millis();
+
+    sendCurrentData(
+      ppm,
+      personPresent
+    );
+
+    // Save history when PPM changes
+
+    if (
+      lastPPM < 0 ||
+      abs(ppm - lastPPM) >= 0.1
+    )
+    {
+      sendHistory(
+        ppm,
+        personPresent
+      );
+
+      lastPPM = ppm;
+    }
+  }
+
+  delay(500);
+}

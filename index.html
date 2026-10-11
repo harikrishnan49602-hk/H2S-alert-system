@@ -1,0 +1,1249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>TRIZEN H₂S Safety Dashboard</title>
+
+    <!-- Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/11.10.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/11.10.0/firebase-database-compat.js"></script>
+
+    <style>
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+        }
+
+        body {
+            background: #f4f7fb;
+            color: #172033;
+        }
+
+        /* HEADER */
+
+        header {
+            background: #111827;
+            color: white;
+            padding: 18px 25px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .logo {
+            font-size: 27px;
+            font-weight: bold;
+            letter-spacing: 2px;
+        }
+
+        .logo span {
+            color: #00a8ff;
+        }
+
+        .connection {
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 7px;
+        }
+
+        .dot {
+            width: 10px;
+            height: 10px;
+            background: #22c55e;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        /* NAVIGATION */
+
+        nav {
+            background: white;
+            padding: 12px 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            display: flex;
+            gap: 10px;
+            overflow-x: auto;
+        }
+
+        nav button {
+            border: none;
+            background: #e8eef7;
+            padding: 11px 18px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        nav button:hover {
+            background: #d8e5f7;
+        }
+
+        nav button.active {
+            background: #007bff;
+            color: white;
+        }
+
+        /* MAIN */
+
+        main {
+            max-width: 1250px;
+            margin: auto;
+            padding: 25px;
+        }
+
+        .page {
+            display: none;
+        }
+
+        .page.active {
+            display: block;
+        }
+
+        .title {
+            margin-bottom: 22px;
+        }
+
+        .title h1 {
+            font-size: 28px;
+            margin-bottom: 5px;
+        }
+
+        .title p {
+            color: #64748b;
+        }
+
+        /* CARDS */
+
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 18px;
+            margin-bottom: 22px;
+        }
+
+        .card {
+            background: white;
+            padding: 22px;
+            border-radius: 14px;
+            box-shadow: 0 3px 12px rgba(0,0,0,0.08);
+        }
+
+        .card-title {
+            color: #64748b;
+            font-size: 14px;
+            margin-bottom: 12px;
+        }
+
+        .value {
+            font-size: 30px;
+            font-weight: bold;
+        }
+
+        .unit {
+            font-size: 15px;
+            color: #64748b;
+        }
+
+        /* STATUS */
+
+        .status-card {
+            background: white;
+            border-radius: 14px;
+            padding: 25px;
+            box-shadow: 0 3px 12px rgba(0,0,0,0.08);
+            margin-bottom: 22px;
+        }
+
+        .status {
+            font-size: 35px;
+            font-weight: bold;
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+        }
+
+        .safe {
+            background: #dcfce7;
+            color: #15803d;
+        }
+
+        .danger {
+            background: #fee2e2;
+            color: #dc2626;
+        }
+
+        .evacuate {
+            background: #ffedd5;
+            color: #c2410c;
+        }
+
+        /* INFORMATION */
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 18px;
+        }
+
+        .info-card {
+            background: white;
+            padding: 22px;
+            border-radius: 14px;
+            box-shadow: 0 3px 12px rgba(0,0,0,0.08);
+        }
+
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 13px 0;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        .info-row:last-child {
+            border-bottom: none;
+        }
+
+        /* PERSON */
+
+        .person {
+            font-weight: bold;
+            padding: 7px 12px;
+            border-radius: 20px;
+        }
+
+        .person-yes {
+            background: #fee2e2;
+            color: #dc2626;
+        }
+
+        .person-no {
+            background: #dcfce7;
+            color: #15803d;
+        }
+
+        /* HISTORY */
+
+        .history-box {
+            background: white;
+            padding: 22px;
+            border-radius: 14px;
+            box-shadow: 0 3px 12px rgba(0,0,0,0.08);
+            overflow-x: auto;
+        }
+
+        .history-controls {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        input[type="date"] {
+            padding: 11px;
+            border: 1px solid #cbd5e1;
+            border-radius: 7px;
+            font-size: 15px;
+        }
+
+        .btn {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 11px 20px;
+            border-radius: 7px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .btn:hover {
+            background: #0066d6;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 600px;
+        }
+
+        th {
+            background: #111827;
+            color: white;
+            padding: 13px;
+            text-align: left;
+        }
+
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        tr:hover {
+            background: #f8fafc;
+        }
+
+        .no-data {
+            text-align: center;
+            padding: 30px;
+            color: #64748b;
+        }
+
+        /* ALERT */
+
+        #alertBox {
+            display: none;
+            background: #dc2626;
+            color: white;
+            padding: 17px;
+            text-align: center;
+            font-weight: bold;
+            font-size: 18px;
+        }
+
+        /* FOOTER */
+
+        footer {
+            text-align: center;
+            padding: 25px;
+            margin-top: 30px;
+            color: #64748b;
+        }
+
+        /* MOBILE */
+
+        @media (max-width: 900px) {
+
+            .cards {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .info-grid {
+                grid-template-columns: 1fr;
+            }
+
+        }
+
+        @media (max-width: 600px) {
+
+            header {
+                padding: 15px;
+            }
+
+            .logo {
+                font-size: 22px;
+            }
+
+            .connection {
+                font-size: 11px;
+            }
+
+            main {
+                padding: 15px;
+            }
+
+            .cards {
+                grid-template-columns: 1fr;
+            }
+
+            .value {
+                font-size: 27px;
+            }
+
+            .status {
+                font-size: 25px;
+            }
+
+            nav {
+                padding: 10px;
+            }
+
+            nav button {
+                padding: 9px 13px;
+            }
+
+        }
+
+    </style>
+</head>
+
+<body>
+
+<!-- =====================================================
+     HEADER
+====================================================== -->
+
+<header>
+
+    <div class="logo">
+        <span>TRIZEN</span>
+    </div>
+
+    <div class="connection">
+        <span class="dot" id="connectionDot"></span>
+        <span id="connectionText">Connecting...</span>
+    </div>
+
+</header>
+
+<!-- =====================================================
+     ALERT
+====================================================== -->
+
+<div id="alertBox">
+    ⚠️ H₂S DANGER! PERSON DETECTED — EVACUATE IMMEDIATELY
+</div>
+
+<!-- =====================================================
+     NAVIGATION
+====================================================== -->
+
+<nav>
+
+    <button class="active" onclick="showPage('dashboard', this)">
+        Dashboard
+    </button>
+
+    <button onclick="showPage('history', this)">
+        History
+    </button>
+
+</nav>
+
+<!-- =====================================================
+     MAIN
+====================================================== -->
+
+<main>
+
+<!-- =====================================================
+     DASHBOARD PAGE
+====================================================== -->
+
+<section id="dashboard" class="page active">
+
+    <div class="title">
+
+        <h1>H₂S Safety Monitoring</h1>
+
+        <p>
+            Real-time TRIZEN gas safety monitoring system
+        </p>
+
+    </div>
+
+    <!-- CARDS -->
+
+    <div class="cards">
+
+        <div class="card">
+
+            <div class="card-title">
+                H₂S LEVEL
+            </div>
+
+            <div class="value">
+                <span id="ppm">--</span>
+                <span class="unit">ppm</span>
+            </div>
+
+        </div>
+
+
+        <div class="card">
+
+            <div class="card-title">
+                PERSON
+            </div>
+
+            <div class="value" id="person">
+                --
+            </div>
+
+        </div>
+
+
+        <div class="card">
+
+            <div class="card-title">
+                DATE
+            </div>
+
+            <div class="value" style="font-size:22px" id="date">
+                --
+            </div>
+
+        </div>
+
+
+        <div class="card">
+
+            <div class="card-title">
+                TIME
+            </div>
+
+            <div class="value" style="font-size:22px" id="time">
+                --
+            </div>
+
+        </div>
+
+    </div>
+
+    <!-- STATUS -->
+
+    <div class="status-card">
+
+        <div class="card-title">
+            SAFETY STATUS
+        </div>
+
+        <div id="status" class="status safe">
+            CONNECTING...
+        </div>
+
+    </div>
+
+
+    <!-- INFORMATION -->
+
+    <div class="info-grid">
+
+        <div class="info-card">
+
+            <h3>System Information</h3>
+
+            <div class="info-row">
+                <span>Date</span>
+                <strong id="infoDate">--</strong>
+            </div>
+
+            <div class="info-row">
+                <span>Day</span>
+                <strong id="day">--</strong>
+            </div>
+
+            <div class="info-row">
+                <span>Time</span>
+                <strong id="infoTime">--</strong>
+            </div>
+
+        </div>
+
+
+        <div class="info-card">
+
+            <h3>Gas & Person Detection</h3>
+
+            <div class="info-row">
+                <span>H₂S Level</span>
+                <strong>
+                    <span id="infoPPM">--</span> ppm
+                </strong>
+            </div>
+
+            <div class="info-row">
+                <span>Person Status</span>
+                <strong id="infoPerson">
+                    --
+                </strong>
+            </div>
+
+            <div class="info-row">
+                <span>Danger Limit</span>
+                <strong>
+                    40 ppm
+                </strong>
+            </div>
+
+        </div>
+
+    </div>
+
+</section>
+
+
+<!-- =====================================================
+     HISTORY PAGE
+====================================================== -->
+
+<section id="history" class="page">
+
+    <div class="title">
+
+        <h1>H₂S History</h1>
+
+        <p>
+            View stored H₂S readings by date
+        </p>
+
+    </div>
+
+
+    <div class="history-box">
+
+        <div class="history-controls">
+
+            <input
+                type="date"
+                id="historyDate"
+            >
+
+            <button
+                class="btn"
+                onclick="loadHistory()"
+            >
+                View History
+            </button>
+
+            <button
+                class="btn"
+                onclick="loadToday()"
+            >
+                Today
+            </button>
+
+        </div>
+
+
+        <div id="historyResult">
+
+            <div class="no-data">
+                Select a date to view history.
+            </div>
+
+        </div>
+
+    </div>
+
+</section>
+
+</main>
+
+<!-- =====================================================
+     FOOTER
+====================================================== -->
+
+<footer>
+
+    TRIZEN H₂S Safety Monitoring System
+
+</footer>
+
+
+<script>
+
+// ======================================================
+// FIREBASE CONFIGURATION
+// ======================================================
+//
+// Replace these values with the Firebase Web App
+// configuration from:
+//
+// Firebase Console
+// → Project Settings
+// → General
+// → Your Apps
+// → Web App
+// → Config
+//
+// ======================================================
+
+const firebaseConfig = {
+
+    apiKey: "YOUR_API_KEY",
+
+    authDomain:
+        "trizen-h2s-safety-system.firebaseapp.com",
+
+    databaseURL:
+        "https://trizen-h2s-safety-system-default-rtdb.asia-southeast1.firebasedatabase.app",
+
+    projectId:
+        "trizen-h2s-safety-system",
+
+    storageBucket:
+        "trizen-h2s-safety-system.firebasestorage.app",
+
+    messagingSenderId:
+        "YOUR_MESSAGING_SENDER_ID",
+
+    appId:
+        "YOUR_APP_ID"
+
+};
+
+
+// ======================================================
+// FIREBASE INITIALIZATION
+// ======================================================
+
+firebase.initializeApp(firebaseConfig);
+
+const database =
+    firebase.database();
+
+
+// ======================================================
+// CURRENT DATA REFERENCE
+// ======================================================
+
+const currentRef =
+    database.ref(
+        "/trizen/h2s/current"
+    );
+
+
+// ======================================================
+// REAL-TIME CURRENT DATA
+// ======================================================
+
+currentRef.on(
+    "value",
+    function(snapshot) {
+
+        const data =
+            snapshot.val();
+
+        if (!data) {
+
+            document.getElementById(
+                "connectionText"
+            ).innerText =
+                "Waiting for ESP32";
+
+            return;
+        }
+
+
+        // ------------------------------------------------
+        // PPM
+        // ------------------------------------------------
+
+        const ppm =
+            Number(data.ppm || 0);
+
+        document.getElementById(
+            "ppm"
+        ).innerText =
+            ppm.toFixed(2);
+
+        document.getElementById(
+            "infoPPM"
+        ).innerText =
+            ppm.toFixed(2);
+
+
+        // ------------------------------------------------
+        // PERSON
+        // ------------------------------------------------
+
+        const person =
+            data.personDetected === true;
+
+        const personElement =
+            document.getElementById("person");
+
+        const infoPerson =
+            document.getElementById("infoPerson");
+
+
+        if (person) {
+
+            personElement.innerText =
+                "DETECTED";
+
+            personElement.style.color =
+                "#dc2626";
+
+            infoPerson.innerHTML =
+                '<span class="person person-yes">DETECTED</span>';
+
+        }
+        else {
+
+            personElement.innerText =
+                "NO";
+
+            personElement.style.color =
+                "#15803d";
+
+            infoPerson.innerHTML =
+                '<span class="person person-no">NOT DETECTED</span>';
+
+        }
+
+
+        // ------------------------------------------------
+        // DATE
+        // ------------------------------------------------
+
+        document.getElementById(
+            "date"
+        ).innerText =
+            data.date || "--";
+
+        document.getElementById(
+            "infoDate"
+        ).innerText =
+            data.date || "--";
+
+
+        // ------------------------------------------------
+        // DAY
+        // ------------------------------------------------
+
+        document.getElementById(
+            "day"
+        ).innerText =
+            data.day || "--";
+
+
+        // ------------------------------------------------
+        // TIME
+        // ------------------------------------------------
+
+        document.getElementById(
+            "time"
+        ).innerText =
+            data.time || "--";
+
+        document.getElementById(
+            "infoTime"
+        ).innerText =
+            data.time || "--";
+
+
+        // ------------------------------------------------
+        // STATUS
+        // ------------------------------------------------
+
+        updateStatus(
+            ppm,
+            person
+        );
+
+
+        // ------------------------------------------------
+        // CONNECTION
+        // ------------------------------------------------
+
+        document.getElementById(
+            "connectionText"
+        ).innerText =
+            "Firebase Connected";
+
+        document.getElementById(
+            "connectionDot"
+        ).style.background =
+            "#22c55e";
+
+    },
+    function(error) {
+
+        console.error(error);
+
+        document.getElementById(
+            "connectionText"
+        ).innerText =
+            "Firebase Error";
+
+        document.getElementById(
+            "connectionDot"
+        ).style.background =
+            "#dc2626";
+
+    }
+);
+
+
+// ======================================================
+// UPDATE SAFETY STATUS
+// ======================================================
+
+function updateStatus(
+    ppm,
+    person
+) {
+
+    const status =
+        document.getElementById(
+            "status"
+        );
+
+    const alertBox =
+        document.getElementById(
+            "alertBox"
+        );
+
+
+    status.className =
+        "status";
+
+
+    // ------------------------------------------------
+    // EVACUATE
+    // ------------------------------------------------
+
+    if (
+        ppm > 40 &&
+        person
+    ) {
+
+        status.innerText =
+            "EVACUATE NOW";
+
+        status.classList.add(
+            "evacuate"
+        );
+
+        alertBox.style.display =
+            "block";
+
+    }
+
+    // ------------------------------------------------
+    // DANGER
+    // ------------------------------------------------
+
+    else if (
+        ppm > 40
+    ) {
+
+        status.innerText =
+            "DANGER";
+
+        status.classList.add(
+            "danger"
+        );
+
+        alertBox.style.display =
+            "none";
+
+    }
+
+    // ------------------------------------------------
+    // SAFE
+    // ------------------------------------------------
+
+    else {
+
+        status.innerText =
+            "SAFE";
+
+        status.classList.add(
+            "safe"
+        );
+
+        alertBox.style.display =
+            "none";
+
+    }
+
+}
+
+
+// ======================================================
+// NAVIGATION
+// ======================================================
+
+function showPage(
+    pageName,
+    button
+) {
+
+    const pages =
+        document.querySelectorAll(
+            ".page"
+        );
+
+    pages.forEach(
+        function(page) {
+
+            page.classList.remove(
+                "active"
+            );
+
+        }
+    );
+
+
+    document.getElementById(
+        pageName
+    ).classList.add(
+        "active"
+    );
+
+
+    const buttons =
+        document.querySelectorAll(
+            "nav button"
+        );
+
+    buttons.forEach(
+        function(btn) {
+
+            btn.classList.remove(
+                "active"
+            );
+
+        }
+    );
+
+
+    button.classList.add(
+        "active"
+    );
+
+}
+
+
+// ======================================================
+// LOAD TODAY
+// ======================================================
+
+function loadToday()
+{
+    const today =
+        new Date();
+
+    const year =
+        today.getFullYear();
+
+    const month =
+        String(
+            today.getMonth() + 1
+        ).padStart(2, "0");
+
+    const day =
+        String(
+            today.getDate()
+        ).padStart(2, "0");
+
+    const date =
+        year +
+        "-" +
+        month +
+        "-" +
+        day;
+
+    document.getElementById(
+        "historyDate"
+    ).value =
+        date;
+
+    loadHistory();
+}
+
+
+// ======================================================
+// LOAD HISTORY
+// ======================================================
+
+function loadHistory()
+{
+
+    const selectedDate =
+        document.getElementById(
+            "historyDate"
+        ).value;
+
+
+    if (!selectedDate) {
+
+        alert(
+            "Please select a date."
+        );
+
+        return;
+
+    }
+
+
+    const historyRef =
+        database.ref(
+            "/trizen/h2s/history/" +
+            selectedDate
+        );
+
+
+    historyRef.once(
+        "value",
+        function(snapshot) {
+
+            const data =
+                snapshot.val();
+
+
+            if (!data) {
+
+                document.getElementById(
+                    "historyResult"
+                ).innerHTML =
+                    `
+                    <div class="no-data">
+                        No H₂S data found for
+                        ${selectedDate}
+                    </div>
+                    `;
+
+                return;
+
+            }
+
+
+            let html = `
+
+                <h3 style="margin-bottom:15px">
+                    History: ${selectedDate}
+                </h3>
+
+                <table>
+
+                    <thead>
+
+                        <tr>
+                            <th>Time</th>
+                            <th>H₂S PPM</th>
+                            <th>Person</th>
+                            <th>Status</th>
+                        </tr>
+
+                    </thead>
+
+                    <tbody>
+            `;
+
+
+            Object.keys(data).forEach(
+                function(key) {
+
+                    const record =
+                        data[key];
+
+
+                    const ppm =
+                        Number(
+                            record.ppm || 0
+                        );
+
+
+                    const person =
+                        record.personDetected === true;
+
+
+                    let status;
+
+
+                    if (
+                        ppm > 40 &&
+                        person
+                    ) {
+
+                        status =
+                            "EVACUATE";
+
+                    }
+                    else if (
+                        ppm > 40
+                    ) {
+
+                        status =
+                            "DANGER";
+
+                    }
+                    else {
+
+                        status =
+                            "SAFE";
+
+                    }
+
+
+                    html += `
+
+                        <tr>
+
+                            <td>
+                                ${record.time || "--"}
+                            </td>
+
+                            <td>
+                                ${ppm.toFixed(2)} ppm
+                            </td>
+
+                            <td>
+                                ${
+                                    person
+                                    ? "DETECTED"
+                                    : "NO"
+                                }
+                            </td>
+
+                            <td>
+                                <strong>
+                                    ${status}
+                                </strong>
+                            </td>
+
+                        </tr>
+
+                    `;
+
+                }
+            );
+
+
+            html += `
+
+                    </tbody>
+
+                </table>
+
+            `;
+
+
+            document.getElementById(
+                "historyResult"
+            ).innerHTML =
+                html;
+
+        },
+        function(error) {
+
+            console.error(error);
+
+            document.getElementById(
+                "historyResult"
+            ).innerHTML =
+
+                `
+                <div class="no-data">
+                    Firebase error:
+                    ${error.message}
+                </div>
+                `;
+
+        }
+    );
+
+}
+
+
+// ======================================================
+// SET TODAY AUTOMATICALLY
+// ======================================================
+
+loadToday();
+
+</script>
+
+</body>
+</html>
